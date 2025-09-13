@@ -10,20 +10,34 @@ import (
 type Option func(*CsvWriter)
 
 type CsvWriter struct {
-	csvName    string // CSV文件名
-	zipName    string // zip文件名
-	file       *os.File
-	writer     *csv.Writer
-	zip        bool   // 是否zip压缩(启用压缩会最终文件会变成 myfile.csv.zip)
-	flushCount uint32 // 写入多少行数据后flush
-	wroteCount uint32 // 已写入行数
-	removeCsv  bool   // 调用Close方法时删除csv文件（一般用于导出数据上传对象存储后清理生成的csv文件）
-	removeZip  bool   // 调用Close方法时删除zip文件（一般用于导出数据上传对象存储后清理生成的zip文件）
+	csvName    string      // CSV文件名
+	zipName    string      // zip文件名
+	comma      string      // 分隔符(默认英文逗号)
+	file       *os.File    // CSV文件句柄
+	writer     *csv.Writer // CSV写入器
+	zip        bool        // 是否zip压缩(启用压缩会最终文件会变成 myfile.csv.zip)
+	flushCount uint32      // 写入多少行数据后flush
+	wroteCount uint32      // 已写入行数
+	removeCsv  bool        // 调用Close方法时删除csv文件（一般用于导出数据上传对象存储后清理生成的csv文件）
+	removeZip  bool        // 调用Close方法时删除zip文件（一般用于导出数据上传对象存储后清理生成的zip文件）
+	useCRLF    bool        // 是否使用CRLF换行符
 }
 
 func WithZip() Option {
 	return func(c *CsvWriter) {
 		c.zip = true
+	}
+}
+
+func WithComma(comma string) Option {
+	return func(c *CsvWriter) {
+		c.comma = comma
+	}
+}
+
+func WithUseCRLF() Option {
+	return func(c *CsvWriter) {
+		c.useCRLF = true
 	}
 }
 
@@ -104,6 +118,12 @@ func (m *CsvWriter) createFile() (err error) {
 	}
 	if m.zip {
 		m.zipName = m.csvName + ".zip"
+	}
+	if m.comma != "" {
+		m.writer.Comma = []rune(m.comma)[0]
+	}
+	if m.useCRLF {
+		m.writer.UseCRLF = true
 	}
 	m.writer = csv.NewWriter(m.file)
 	return nil
