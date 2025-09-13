@@ -138,6 +138,15 @@ func (m *CsvWriter) WriteHeader(header []string) (err error) {
 	return nil
 }
 
+func (m *CsvWriter) WriteRows(rows [][]any) (err error) {
+	for _, row := range rows {
+		if err = m.WriteRow(row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *CsvWriter) WriteRow(record []any) (err error) {
 	if m.writer == nil {
 		return fmt.Errorf("no writer found")
