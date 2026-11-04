@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"bytes"
 )
 
 func OpenCSV(filename string) (io.Reader, error) {
@@ -22,14 +23,29 @@ func OpenCSV(filename string) (io.Reader, error) {
 // 返回按 csv 标签填充好的 []T。T 为任意带 csv 标签的结构体。
 // trimLeadingSpace=true表示第一行为表头，数据从第2行开始取
 func ParseCSVRows[T any](r io.Reader, trimLeadingSpace bool) ([]T, error) {
-	cr := csv.NewReader(r)
+
+	// 先读取全部字节，检测并剥离 UTF-8 BOM
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("读取数据失败: %w", err)
+	}
+	// UTF-8 BOM: EF BB BF
+	if len(raw) >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF {
+		raw = raw[3:]
+	}
+
+	cr := csv.NewReader(bytes.NewReader(raw))
 	cr.TrimLeadingSpace = trimLeadingSpace
 
 	header, err := cr.Read()
 	if err != nil {
 		return nil, fmt.Errorf("读取表头失败: %w", err)
 	}
-
+	// UTF-8 BOM: EF BB BF
+	if len(raw) >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF {
+		raw = raw[3:]
+	}
+	var lineNo int
 	var out []T
 	for {
 		rec, err := cr.Read()
@@ -39,12 +55,14 @@ func ParseCSVRows[T any](r io.Reader, trimLeadingSpace bool) ([]T, error) {
 		if err != nil {
 			return nil, fmt.Errorf("读取数据行失败: %w", err)
 		}
+		lineNo++
 		if isAllEmpty(rec) { // 跳过全空行
+			//fmt.Printf("skip all empty line\n")
 			continue
 		}
 		one, err := unmarshalRow[T](header, rec)
 		if err != nil {
-			return nil, fmt.Errorf("第%d行解析失败: %w", len(out)+2, err)
+			return nil, fmt.Errorf("第%d行解析失败: %w", lineNo, err)
 		}
 		out = append(out, *one)
 	}
@@ -56,15 +74,21 @@ func unmarshalRow[T any](header, record []string) (*T, error) {
 	var zero T
 	rv := reflect.ValueOf(&zero).Elem()
 	rt := rv.Type()
-
+    //fmt.Printf("header %+v record %+v\n", header, record)
 	// 以「表头列名 -> 该列值」建立查找表
 	vals := make(map[string]string, len(header))
 	for i, h := range header {
 		if i < len(record) {
-			vals[strings.TrimSpace(h)] = record[i]
+			h = strings.TrimSpace(h)
+			h = strings.ReplaceAll(h, "\r", "")
+			h = strings.ReplaceAll(h, "\n", "")
+			h = strings.ReplaceAll(h, "\t", "")
+			vals[h] = record[i]
 		}
 	}
-
+	for k, v :=range vals {
+		fmt.Printf("表头：[%+v] 值: [%v]\n", k, v)
+	}
 	// 遍历结构体字段，按 csv 标签取列值并转换
 	for i := 0; i < rt.NumField(); i++ {
 		sf := rt.Field(i)
@@ -72,12 +96,13 @@ func unmarshalRow[T any](header, record []string) (*T, error) {
 		if tag == "" {
 			continue // 无 csv 标签的字段不处理
 		}
+		fmt.Printf("field [%+v] csv tag [%s]\n", sf.Name, tag)
 		raw, ok := vals[tag]
 		if !ok {
-			return nil, fmt.Errorf("表头缺少列: %s", tag)
+			return nil, fmt.Errorf("表头缺少列 [%s]", tag)
 		}
 		if err := setField(rv.Field(i), strings.TrimSpace(raw)); err != nil {
-			return nil, fmt.Errorf("列 %s 值 %q 转换失败: %w", tag, raw, err)
+			return nil, fmt.Errorf("列%s值%q转换失败: %w", tag, raw, err)
 		}
 	}
 	return &zero, nil
