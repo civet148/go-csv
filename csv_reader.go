@@ -1,6 +1,7 @@
 package csv
 
 import (
+	"bytes"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -8,7 +9,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"bytes"
 )
 
 func OpenCSV(filename string) (io.Reader, error) {
@@ -41,10 +41,6 @@ func ParseCSVRows[T any](r io.Reader, trimLeadingSpace bool) ([]T, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取表头失败: %w", err)
 	}
-	// UTF-8 BOM: EF BB BF
-	if len(raw) >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF {
-		raw = raw[3:]
-	}
 	var lineNo int
 	var out []T
 	for {
@@ -57,7 +53,6 @@ func ParseCSVRows[T any](r io.Reader, trimLeadingSpace bool) ([]T, error) {
 		}
 		lineNo++
 		if isAllEmpty(rec) { // 跳过全空行
-			//fmt.Printf("skip all empty line\n")
 			continue
 		}
 		one, err := unmarshalRow[T](header, rec)
@@ -74,7 +69,6 @@ func unmarshalRow[T any](header, record []string) (*T, error) {
 	var zero T
 	rv := reflect.ValueOf(&zero).Elem()
 	rt := rv.Type()
-    //fmt.Printf("header %+v record %+v\n", header, record)
 	// 以「表头列名 -> 该列值」建立查找表
 	vals := make(map[string]string, len(header))
 	for i, h := range header {
@@ -86,9 +80,6 @@ func unmarshalRow[T any](header, record []string) (*T, error) {
 			vals[h] = record[i]
 		}
 	}
-	for k, v :=range vals {
-		fmt.Printf("表头：[%+v] 值: [%v]\n", k, v)
-	}
 	// 遍历结构体字段，按 csv 标签取列值并转换
 	for i := 0; i < rt.NumField(); i++ {
 		sf := rt.Field(i)
@@ -96,7 +87,6 @@ func unmarshalRow[T any](header, record []string) (*T, error) {
 		if tag == "" {
 			continue // 无 csv 标签的字段不处理
 		}
-		fmt.Printf("field [%+v] csv tag [%s]\n", sf.Name, tag)
 		raw, ok := vals[tag]
 		if !ok {
 			return nil, fmt.Errorf("表头缺少列 [%s]", tag)
